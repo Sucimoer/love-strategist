@@ -5,3 +5,4 @@ flask>=3.0.0
 rank_bm25>=0.2.2
 jieba>=0.42.1
 requests>=2.31.0
+gunicorn>=21.2.0
