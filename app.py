@@ -83,20 +83,27 @@ def api_kb_search_book():
 def api_analyze():
     data = request.get_json(force=True)
     raw = data.get("chat", "").strip()
+    user_key = data.get("api_key", "").strip() # 【新增】获取前端传来的 Key
+    
     if not raw:
         return jsonify({"error": "聊天内容为空"}), 400
 
+    # 【新增】如果前端传了 Key，就覆盖当前请求的 CFG
+    local_cfg = CFG.copy()
+    if user_key:
+        local_cfg["llm"] = local_cfg["llm"].copy()
+        local_cfg["llm"]["api_key"] = user_key
+
     try:
         chat = parse_chat(raw)
-        signals = analyze_signals(chat, CFG)
-        persona = build_persona(chat, CFG)
+        signals = analyze_signals(chat, local_cfg) # 换成 local_cfg
+        persona = build_persona(chat, local_cfg)   # 换成 local_cfg
         
-        # 从书库检索相关段落
         chat_text = "\n".join(f"[{m.speaker}] {m.text}" for m in chat)
+        from core.rag import retrieve_relevant_chunks
         kb_context = retrieve_relevant_chunks(chat_text)
         
-        # 传入额外知识
-        advice = analyze_and_suggest(chat, signals, persona, CFG, extra_context=kb_context)
+        advice = analyze_and_suggest(chat, signals, persona, local_cfg, extra_context=kb_context) # 换成 local_cfg
 
         fb = FeedbackStore()
         record = fb.record(advice, user_reply=None, target_reply=None)
@@ -109,7 +116,6 @@ def api_analyze():
         })
     except Exception as e:
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-
 # (其余的 api/simulate 和 api/feedback 接口保持原样，不用改)
 
 if __name__ == "__main__":

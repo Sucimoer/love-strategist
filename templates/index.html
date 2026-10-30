@@ -41,6 +41,18 @@
     <button onclick="openKB()">📚 知识库管理</button>
   </div>
 </div>
+<!-- 配置输入框 -->
+<div class="card">
+  <div class="section-title">模型配置（填你自己的 Key）</div>
+  <div class="row">
+    <input type="text" id="baseUrl" placeholder="Base URL" value="https://api.deepseek.com">
+    <input type="password" id="apiKey" placeholder="API Key">
+    <input type="text" id="modelName" placeholder="模型名" value="deepseek-chat">
+  </div>
+  <div class="row" style="margin-top:10px;">
+    <button id="saveCfgBtn" class="secondary">保存在本机浏览器</button>
+  </div>
+</div>
 
 <div class="card">
   <div class="section-title">聊天记录</div>
@@ -86,7 +98,33 @@
 <script>
 const $ = id => document.getElementById(id);
 
-// 知识库逻辑
+// ======== 配置管理 ========
+function getCfg() {
+  return {
+    base_url: $('baseUrl').value.trim(),
+    api_key: $('apiKey').value.trim(),
+    model: $('modelName').value.trim()
+  };
+}
+
+// 初始化时读取本地保存的配置
+(function loadCfg() {
+  const saved = localStorage.getItem('ls_cfg');
+  if (saved) {
+    const c = JSON.parse(saved);
+    if (c.base_url) $('baseUrl').value = c.base_url;
+    if (c.api_key) $('apiKey').value = c.api_key;
+    if (c.model) $('modelName').value = c.model;
+  }
+})();
+
+// 保存配置
+$('saveCfgBtn').onclick = () => {
+  localStorage.setItem('ls_cfg', JSON.stringify(getCfg()));
+  alert('配置已保存在当前浏览器！');
+};
+
+// ======== 知识库逻辑 ========
 async function openKB() {
   $('kbModal').classList.remove('hidden');
   await loadKBList();
@@ -160,10 +198,13 @@ $('kbFile').addEventListener('change', async (e) => {
   if (!$('kbTitle').value) $('kbTitle').value = file.name.replace(/\.(txt|md)$/i, '');
 });
 
-// 分析逻辑
+// ======== 核心分析逻辑 ========
 $('analyzeBtn').onclick = async () => {
-  const chat = $('chatInput').value.trim();
-  if (!chat) { alert('请先粘贴聊天记录'); return; }
+  const cfg = getCfg();
+  if (!cfg.api_key) { alert('请先在上方填入你的 API Key'); return; }
+  
+  const chatContent = $('chatInput').value.trim();
+  if (!chatContent) { alert('请先粘贴聊天记录'); return; }
 
   const btn = $('analyzeBtn');
   btn.disabled = true; btn.textContent = '分析中…';
@@ -176,10 +217,14 @@ $('analyzeBtn').onclick = async () => {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ chat })
+      body: JSON.stringify({ 
+        chat: chatContent,
+        api_key: cfg.api_key // 把浏览器里的 Key 传给后端
+      })
     });
+    
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    if (!res.ok) throw new Error(data.error || '请求失败');
 
     const s = data.signals;
     let lines = [];
@@ -199,10 +244,9 @@ $('analyzeBtn').onclick = async () => {
     $('adviceOut').textContent = data.advice;
   } catch (e) {
     $('signalsOut').textContent = '出错：' + e.message;
+    $('signalsOut').classList.add('error');
   } finally {
     btn.disabled = false; btn.textContent = '开始分析';
   }
 };
 </script>
-</body>
-</html>
