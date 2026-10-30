@@ -8,7 +8,6 @@ from core.persona import build_persona
 from core.goutoujunshi_skill import analyze_and_suggest
 from core.simulation import simulate_turning_point, TURNING_POINTS
 from core.feedback import FeedbackStore
-# 导入刚写的 rag 模块
 from core.rag import load_books, add_book, delete_book, retrieve_relevant_chunks
 
 with open("config.yaml", "r", encoding="utf-8") as f:
@@ -16,6 +15,15 @@ with open("config.yaml", "r", encoding="utf-8") as f:
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
+
+def get_local_cfg(data):
+    """从请求中提取用户的 api_key，如果没有则使用默认配置"""
+    user_key = data.get("api_key", "").strip()
+    local_cfg = CFG.copy()
+    if user_key:
+        local_cfg["llm"] = local_cfg["llm"].copy()
+        local_cfg["llm"]["api_key"] = user_key
+    return local_cfg
 
 @app.route("/")
 def index():
@@ -47,23 +55,17 @@ def api_kb_delete():
 
 @app.route("/api/knowledge/search_book", methods=["POST"])
 def api_kb_search_book():
-    """输入书名获取简介"""
     data = request.get_json(force=True)
     title = data.get("title", "").strip()
-    if not title:
-        return jsonify({"error": "书名不能为空"}), 400
-        
+    if not title: return jsonify({"error": "书名不能为空"}), 400
     try:
         url = f"https://openlibrary.org/search.json?q={requests.utils.quote(title)}&limit=1"
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         docs = resp.json().get("docs", [])
-        if not docs:
-            return jsonify({"error": "未找到该书"}), 404
-            
+        if not docs: return jsonify({"error": "未找到该书"}), 404
         first = docs[0]
         book_title = first.get("title", title)
-        
         desc = f"《{book_title}》是一部著作。"
         if "key" in first:
             work_url = f"https://openlibrary.org{first['key']}.json"
@@ -73,7 +75,6 @@ def api_kb_search_book():
                 if "description" in w_data:
                     d = w_data["description"]
                     desc = d if isinstance(d, str) else d.get("value", desc)
-                    
         return jsonify({"ok": True, "title": book_title, "description": desc})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -83,40 +84,44 @@ def api_kb_search_book():
 def api_analyze():
     data = request.get_json(force=True)
     raw = data.get("chat", "").strip()
-    user_key = data.get("api_key", "").strip() # 【新增】获取前端传来的 Key
-    
-    if not raw:
-        return jsonify({"error": "聊天内容为空"}), 400
+    if not raw: return jsonify({"error": "聊天内容为空"}), 400
 
-    # 【新增】如果前端传了 Key，就覆盖当前请求的 CFG
-    local_cfg = CFG.copy()
-    if user_key:
-        local_cfg["llm"] = local_cfg["llm"].copy()
-        local_cfg["llm"]["api_key"] = user_key
+    local_cfg = get_local_cfg(data)
+    if not local_cfg["llm"]["api_key"] or local_cfg["llm"]["api_key"] == "sk-你的Key":
+        return jsonify({"error": "请先配置有效的 API Key"}), 400
 
     try:
         chat = parse_chat(raw)
-        signals = analyze_signals(chat, local_cfg) # 换成 local_cfg
-        persona = build_persona(chat, local_cfg)   # 换成 local_cfg
+        signals = analyze_signals(chat, local_cfg)
+        persona = build_persona(chat, local_cfg)
         
         chat_text = "\n".join(f"[{m.speaker}] {m.text}" for m in chat)
-        from core.rag import retrieve_relevant_chunks
         kb_context = retrieve_relevant_chunks(chat_text)
         
-        advice = analyze_and_suggest(chat, signals, persona, local_cfg, extra_context=kb_context) # 换成 local_cfg
-
-        fb = FeedbackStore()
-        record = fb.record(advice, user_reply=None, target_reply=None)
-
-        return jsonify({
-            "signals": signals,
-            "persona": persona,
-            "advice": advice.get("output", ""),
-            "record_id": record.get("time"),
-        })
+        advice = analyze_and_suggest(chat, signals, persona, local_cfg, extra_context=kb_context)
+        return jsonify({"signals": signals, "persona": persona, "advice": advice.get("output", "")})
     except Exception as e:
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-# (其余的 api/simulate 和 api/feedback 接口保持原样，不用改)
+
+# ===== 转折点模拟接口 =====
+@app.route("/api/simulate", methods=["POST"])
+def api_simulate():
+    data = request.get_json(force=True)
+    raw = data.get("chat", "").strip()
+    scene_key = data.get("scene", "exclusivity_talk")
+    if not raw: return jsonify({"error": "聊天内容为空"}), 400
+
+    local_cfg = get_local_cfg(data)
+    if not local_cfg["llm"]["api_key"] or local_cfg["llm"]["api_key"] == "sk-你的Key":
+        return jsonify({"error": "请先配置有效的 API Key"}), 400
+
+    try:
+        chat = parse_chat(raw)
+        persona = build_persona(chat, local_cfg)
+        sim = simulate_turning_point(scene_key, chat, persona, local_cfg)
+        return jsonify({"distribution": sim["distribution"]})
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 
 if __name__ == "__main__":
     app.run()
