@@ -108,8 +108,8 @@ def api_analyze():
 def api_simulate():
     data = request.get_json(force=True)
     raw = data.get("chat", "").strip()
-    scene_key = data.get("scene", "exclusivity_talk")
-    opening_line = data.get("opening_line", "").strip() # 【新增】获取自定义开场白
+    scene_input = data.get("scene", "").strip() # 可能是预设的 key，也可能是自定义文本
+    opening_line = data.get("opening_line", "").strip()
     
     if not raw: return jsonify({"error": "聊天内容为空"}), 400
 
@@ -120,8 +120,13 @@ def api_simulate():
     try:
         chat = parse_chat(raw)
         persona = build_persona(chat, local_cfg)
-        # 【新增】把 opening_line 传进去
-        sim = simulate_turning_point(scene_key, chat, persona, local_cfg, opening_line=opening_line)
+        
+        # 如果传进来的是预设的 key，就翻译成中文描述；否则直接用自定义文本
+        from core.simulation import TURNING_POINTS
+        if scene_input in TURNING_POINTS:
+            scene_input = TURNING_POINTS[scene_input]
+            
+        sim = simulate_turning_point(scene_input, chat, persona, local_cfg, opening_line=opening_line)
         return jsonify({"distribution": sim["distribution"]})
     except Exception as e:
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500

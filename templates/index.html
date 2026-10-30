@@ -131,20 +131,23 @@
   <div class="section-title">转折点模拟</div>
   <p class="hint">把军师推荐的话术填进去，或者写下你自己想发的，跑一下推演。</p>
   
-  <!-- 【新增】自定义开场白输入框 -->
-  <textarea id="simOpeningLine" placeholder="（可选）输入你打算发的话术，留空则默认用聊天记录里你的最后一句。" style="min-height: 80px;"></textarea>
+  <textarea id="simOpeningLine" placeholder="（可选）输入你打算发的话术。" style="min-height: 80px;"></textarea>
   
-  <div class="row">
+  <div class="row" style="margin-bottom: 8px;">
     <select id="sceneSelect">
       {% for s in scenes %}
         <option value="{{ s.key }}">{{ s.desc }}</option>
       {% endfor %}
+      <option value="custom">【自定义场景】由我输入上下文</option>
     </select>
     <button id="simulateBtn">模拟该场景</button>
   </div>
+  
+  <!-- 自定义场景输入框，默认隐藏 -->
+  <textarea id="customSceneInput" placeholder="填写当前的情境（例如：对方刚发了朋友圈，我去找她聊天）..." class="hidden" style="min-height: 60px;"></textarea>
+  
   <pre id="simOut" style="margin-top:10px;"></pre>
 </div>
-
 <!-- 知识库模态框 -->
 <div class="modal-backdrop hidden" id="knowledgeModal">
   <div class="modal">
@@ -398,35 +401,59 @@ $('viewFeedbackBtn').onclick = () => {
 };
 
 // ======== 模拟 ========
+// 监听下拉框变化，控制自定义输入框的显示
+$('sceneSelect').onchange = (e) => {
+  if (e.target.value === 'custom') {
+    $('customSceneInput').classList.remove('hidden');
+  } else {
+    $('customSceneInput').classList.add('hidden');
+  }
+};
+
 $('simulateBtn').onclick = async () => {
   const cfg = getCfg();
   if (!cfg.api_key) return alert('请先填入 API Key');
   const chatContent = $('chatInput').value.trim();
   if (!chatContent) return alert('请先粘贴聊天记录');
   
-  const openingLine = $('simOpeningLine').value.trim(); // 【新增】获取用户输入的开场白
+  const openingLine = $('simOpeningLine').value.trim();
+  let scene = $('sceneSelect').value;
+  
+  // 如果选了自定义场景，读取输入框内容
+  if (scene === 'custom') {
+    scene = $('customSceneInput').value.trim();
+    if (!scene) return alert('你选择了自定义场景，请填写具体情境');
+  }
 
   const btn = $('simulateBtn'); btn.disabled = true; btn.textContent = '模拟中…';
-  $('simOut').textContent = '正在跑多轮模拟（约 30–60 秒）…'; $('simOut').classList.remove('error');
+  $('simOut').textContent = '正在跑多轮模拟（约 10–20 秒）…'; $('simOut').classList.remove('error');
 
   try {
     const res = await fetch('/api/simulate', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ 
         chat: chatContent, 
-        scene: $('sceneSelect').value, 
+        scene: scene, // 传入选定的场景或自定义文本
         api_key: cfg.api_key,
-        opening_line: openingLine // 【新增】传给后端
+        opening_line: openingLine 
       })
     });
+    
+    // 【修复】先判断 HTTP 状态，防止拿到 HTML 页面去解析 JSON
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`服务器响应错误 (${res.status})，可能是超时，请重试`);
+    }
+    
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
     $('simOut').textContent = data.distribution;
   } catch (e) {
-    $('simOut').textContent = '模拟失败：' + e.message; $('simOut').classList.add('error');
-  } finally { btn.disabled = false; btn.textContent = '模拟该场景'; }
+    $('simOut').textContent = '模拟失败：' + e.message; 
+    $('simOut').classList.add('error');
+  } finally { 
+    btn.disabled = false; btn.textContent = '模拟该场景'; 
+  }
 };
-
 // 关闭模态框
 document.querySelectorAll('[data-close]').forEach(el => el.onclick = () => $(el.dataset.close).classList.add('hidden'));
 document.querySelectorAll('.modal-backdrop').forEach(bd => bd.onclick = e => { if (e.target === bd) bd.classList.add('hidden'); });

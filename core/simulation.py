@@ -28,8 +28,7 @@ def _chat(prompt, CFG):
         temperature=0.9,
     ).choices[0].message.content.strip()
 
-def simulate_turning_point(scene_key, chat, persona, CFG, opening_line=""):
-    scene = TURNING_POINTS.get(scene_key, scene_key)
+def simulate_turning_point(scene, chat, persona, CFG, opening_line=""):
     n = CFG["simulation"]["n_runs"]
     max_turns = CFG["simulation"]["max_turns"]
     outcomes = []
