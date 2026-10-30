@@ -18,12 +18,20 @@ app.config["JSON_AS_ASCII"] = False
 
 def get_local_cfg(data):
     user_key = data.get("api_key", "").strip()
+    user_base_url = data.get("base_url", "").strip()
+    user_model = data.get("model", "").strip()
+    
     local_cfg = CFG.copy()
+    local_cfg["llm"] = local_cfg["llm"].copy()
+    
     if user_key:
-        local_cfg["llm"] = local_cfg["llm"].copy()
         local_cfg["llm"]["api_key"] = user_key
+    if user_base_url:
+        local_cfg["llm"]["base_url"] = user_base_url
+    if user_model:
+        local_cfg["llm"]["model"] = user_model
+        
     return local_cfg
-
 @app.route("/")
 def index():
     scenes = [{"key": k, "desc": v} for k, v in TURNING_POINTS.items()]
