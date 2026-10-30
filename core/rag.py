@@ -14,8 +14,15 @@ def _ensure_dir():
 
 def load_books():
     _ensure_dir()
-    with open(BOOKS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(BOOKS_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                return []
+            return json.loads(content)
+    except Exception as e:
+        print(f"读取知识库失败，可能文件损坏: {e}")
+        return [] # 读取失败返回空列表，防止接口500报错
 
 def save_books(books):
     _ensure_dir()
@@ -23,7 +30,6 @@ def save_books(books):
         json.dump(books, f, ensure_ascii=False, indent=2)
 
 def chunk_text(text, chunk_size=500, overlap=50):
-    """简单的按字符长度切块"""
     chunks = []
     for i in range(0, len(text), chunk_size - overlap):
         chunks.append(text[i:i + chunk_size])
@@ -31,7 +37,7 @@ def chunk_text(text, chunk_size=500, overlap=50):
 
 def add_book(title, content):
     books = load_books()
-    book_id = str(int(os.times().elapsed * 1000))  # 简单生成唯一ID
+    book_id = str(int(os.times().elapsed * 1000))
     chunks = chunk_text(content)
     
     book_obj = {
@@ -50,7 +56,6 @@ def delete_book(book_id):
     save_books(books)
 
 def retrieve_relevant_chunks(query, max_chars=4000):
-    """基于 BM25 检索与 query 最相关的段落"""
     books = load_books()
     if not books:
         return ""
@@ -63,19 +68,15 @@ def retrieve_relevant_chunks(query, max_chars=4000):
     if not all_chunks:
         return ""
         
-    # 用 jieba 分词建立倒排索引
     tokenized_corpus = [list(jieba.cut(c["text"])) for c in all_chunks]
     bm25 = BM25Okapi(tokenized_corpus)
-    
     tokenized_query = list(jieba.cut(query))
     doc_scores = bm25.get_scores(tokenized_query)
-    
-    # 排序提取最相关的片段
     scored_chunks = sorted(zip(all_chunks, doc_scores), key=lambda x: x[1], reverse=True)
     
     result_text = ""
     for chunk_info, score in scored_chunks:
-        if score < 0.1:  # 阈值过滤
+        if score < 0.1:
             break
         block = f"【参考自《{chunk_info['title']}》】\n{chunk_info['text']}\n"
         if len(result_text) + len(block) > max_chars:

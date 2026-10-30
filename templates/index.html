@@ -168,6 +168,12 @@
         <input type="file" id="kbFile" accept=".txt,.md" style="flex:1 1 200px;">
         <button id="kbAddBtn">添加条目</button>
       </div>
+      <!-- 在 <div class="section-title" style="margin-top:20px;">已有条目</div> 的上面，插入这行 -->
+      <div class="row" style="margin-top: 15px; border-top: 1px dashed #eee; padding-top: 15px;">
+        <button id="kbExportBtn" class="secondary" style="margin: 0;">导出备份 (.json)</button>
+        <button id="kbImportBtn" class="secondary" style="margin: 0;">导入备份</button>
+        <input type="file" id="kbImportFile" accept=".json" class="hidden">
+      </div>
       <div class="section-title" style="margin-top:20px;">已有条目</div>
       <div id="kbList"></div>
     </div>
@@ -472,7 +478,61 @@ $('simulateBtn').onclick = async () => {
 // 关闭模态框
 document.querySelectorAll('[data-close]').forEach(el => el.onclick = () => $(el.dataset.close).classList.add('hidden'));
 document.querySelectorAll('.modal-backdrop').forEach(bd => bd.onclick = e => { if (e.target === bd) bd.classList.add('hidden'); });
+// ======== 修复：补上顶部按钮的点击事件 ========
+$('openKnowledgeBtn').onclick = () => {
+  $('knowledgeModal').classList.remove('hidden');
+  loadKBList();
+};
 
+$('openImportBtn').onclick = () => {
+  $('importModal').classList.remove('hidden');
+};
+// ======== 知识库备份与恢复 ========
+$('kbExportBtn').onclick = async () => {
+  try {
+    const res = await fetch('/api/knowledge/export');
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `恋爱军师-知识库备份-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('导出失败：' + e.message);
+  }
+};
+
+$('kbImportBtn').onclick = () => $('kbImportFile').click();
+
+$('kbImportFile').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    
+    if (!Array.isArray(data)) throw new Error("备份文件格式不正确");
+    
+    const res = await fetch('/api/knowledge/import', {
+      method: 'POST', 
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error);
+    
+    alert(`导入成功！共恢复了 ${result.count} 本书籍/知识。`);
+    await loadKBList(); // 刷新列表
+  } catch (err) {
+    alert('导入失败：' + err.message);
+  } finally {
+    e.target.value = ''; // 允许重复选择同一文件
+  }
+};
 </script>
 </body>
 </html>

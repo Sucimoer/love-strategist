@@ -60,6 +60,26 @@ def api_kb_delete():
     book_id = data.get("id")
     delete_book(book_id)
     return jsonify({"ok": True})
+@app.route("/api/knowledge/export", methods=["GET"])
+def api_kb_export():
+    """导出所有书籍数据"""
+    books = load_books()
+    return jsonify(books)
+
+@app.route("/api/knowledge/import", methods=["POST"])
+def api_kb_import():
+    """覆盖导入书籍数据"""
+    data = request.get_json(force=True)
+    if not isinstance(data, list):
+        return jsonify({"error": "备份数据格式错误，应为一个列表"}), 400
+    
+    try:
+        # 直接覆盖写入本地 json
+        from core.rag import save_books
+        save_books(data)
+        return jsonify({"ok": True, "count": len(data)})
+    except Exception as e:
+        return jsonify({"error": f"导入失败: {e}"}), 500
 
 @app.route("/api/knowledge/search_book", methods=["POST"])
 def api_kb_search_book():
