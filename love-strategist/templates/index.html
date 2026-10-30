@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>恋爱军师 · 后端增强版</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; max-width: 980px; margin: 0 auto; padding: 0 24px 40px; background: #f7f7f9; color: #222; line-height: 1.6; }
+  .topbar { position: sticky; top: 0; z-index: 100; background: rgba(247,247,249,0.95); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: space-between; padding: 14px 0; margin-bottom: 8px; border-bottom: 1px solid #eee; }
+  .topbar h1 { font-size: 20px; margin: 0; }
+  .topbar button { background: #fff; color: #4a6cf7; border: 1px solid #dde; padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+  .topbar button:hover { background: #eef1ff; }
+  .card { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 18px; }
+  .section-title { font-size: 15px; font-weight: 600; color: #4a6cf7; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #eee; }
+  textarea, input[type="text"], select { width: 100%; padding: 10px; font-size: 14px; font-family: inherit; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 8px;}
+  textarea { min-height: 160px; resize: vertical; }
+  button { background: #4a6cf7; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #aab4d6; }
+  button.secondary { background: #6b7280; }
+  pre { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; margin: 0; }
+  .error { color: #d9534f; }
+  .hidden { display: none !important; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row > input { flex: 1; }
+  
+  /* 模态框样式 */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+  .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 640px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
+  .modal-header { padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;}
+  .modal-header h2 { margin: 0; font-size: 16px; }
+  .modal-close { background: transparent; color: #888; border: none; font-size: 22px; cursor: pointer; padding: 0 6px; }
+  .modal-body { padding: 20px; overflow-y: auto; }
+  .k-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f7f7f9; border-radius: 8px; margin-bottom: 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>恋爱军师</h1>
+  <div>
+    <button onclick="openKB()">📚 知识库管理</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">聊天记录</div>
+  <textarea id="chatInput" placeholder="对方：最近好累&#10;我：怎么了&#10;对方：工作上的事，算了不说这个"></textarea>
+  <button id="analyzeBtn">开始分析</button>
+</div>
+
+<div id="resultSection" class="hidden">
+  <div class="card"><div class="section-title">Sternberg 信号</div><pre id="signalsOut"></pre></div>
+  <div class="card"><div class="section-title">人格画像</div><pre id="personaOut"></pre></div>
+  <div class="card"><div class="section-title">军师分析与建议</div><pre id="adviceOut"></pre></div>
+</div>
+
+<!-- 知识库模态框 -->
+<div id="kbModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>📚 知识库管理</h2>
+      <button class="modal-close" onclick="closeKB()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:#666;">输入书名自动匹配简介，或上传书籍/知识库文本。分析时会自动根据聊天内容搜索相关内容。</p>
+      
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="kbSearchTitle" placeholder="输入书名（如：非暴力沟通）自动匹配简介">
+        <button onclick="searchBook()">搜索</button>
+      </div>
+      <div id="kbSearchResult" style="font-size:12px;color:#4a6cf7;margin-bottom:10px;"></div>
+
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="kbTitle" placeholder="书籍/知识标题">
+        <input type="file" id="kbFile" accept=".txt,.md" style="border:none;padding:0;">
+      </div>
+      <textarea id="kbContent" placeholder="粘贴书籍内容或上传 txt 文件…"></textarea>
+      <button onclick="addKB()" style="width:100%;">添加至知识库</button>
+      
+      <h3 style="margin-top:20px;font-size:14px;border-bottom:1px solid #eee;padding-bottom:8px;">已有条目</h3>
+      <div id="kbList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// 知识库逻辑
+async function openKB() {
+  $('kbModal').classList.remove('hidden');
+  await loadKBList();
+}
+function closeKB() { $('kbModal').classList.add('hidden'); }
+
+async function loadKBList() {
+  const res = await fetch('/api/knowledge/list');
+  const books = await res.json();
+  const box = $('kbList');
+  if (!books.length) { box.innerHTML = '<div style="font-size:13px;color:#999;">暂无资料</div>'; return; }
+  
+  box.innerHTML = books.map(b => `
+    <div class="k-item">
+      <div><b>${b.title}</b> <span style="color:#999;">(${b.length} 字)</span></div>
+      <button class="secondary" style="padding:4px 10px;font-size:12px;margin:0;" onclick="deleteKB('${b.id}')">删除</button>
+    </div>
+  `).join('');
+}
+
+async function searchBook() {
+  const title = $('kbSearchTitle').value;
+  if (!title) return;
+  $('kbSearchResult').textContent = '正在搜索...';
+  try {
+    const res = await fetch('/api/knowledge/search_book', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ title })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      $('kbTitle').value = data.title;
+      $('kbContent').value = data.description;
+      $('kbSearchResult').textContent = '成功获取简介！如果你有该书的全本，请在下方追加粘贴正文。';
+    } else {
+      $('kbSearchResult').textContent = '失败：' + data.error;
+    }
+  } catch(e) { $('kbSearchResult').textContent = '请求出错'; }
+}
+
+async function addKB() {
+  const title = $('kbTitle').value;
+  const content = $('kbContent').value;
+  if (!title || !content) { alert('请填标题和内容'); return; }
+  await fetch('/api/knowledge/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ title, content })
+  });
+  $('kbTitle').value = ''; $('kbContent').value = '';
+  $('kbSearchResult').textContent = '';
+  await loadKBList();
+}
+
+async function deleteKB(id) {
+  if (!confirm('确定删除？')) return;
+  await fetch('/api/knowledge/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id })
+  });
+  await loadKBList();
+}
+
+$('kbFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  $('kbContent').value = text;
+  if (!$('kbTitle').value) $('kbTitle').value = file.name.replace(/\.(txt|md)$/i, '');
+});
+
+// 分析逻辑
+$('analyzeBtn').onclick = async () => {
+  const chat = $('chatInput').value.trim();
+  if (!chat) { alert('请先粘贴聊天记录'); return; }
+
+  const btn = $('analyzeBtn');
+  btn.disabled = true; btn.textContent = '分析中…';
+  $('resultSection').classList.remove('hidden');
+  $('signalsOut').textContent = '正在抽取信号…';
+  $('personaOut').textContent = '正在分析人格…';
+  $('adviceOut').textContent = '正在结合知识库生成建议…';
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ chat })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    const s = data.signals;
+    let lines = [];
+    if (s.summary) lines.push(s.summary, '');
+    for (const axis of ['intimacy', 'passion', 'commitment']) {
+      const o = s[axis] || {};
+      lines.push(`【${axis}】${o.score ?? '?'}`);
+      (o.evidence || []).forEach(e => lines.push('  · ' + e));
+      lines.push('');
+    }
+    $('signalsOut').textContent = lines.join('\n');
+
+    const p = data.persona;
+    let plines = [p.summary || '', `MBTI推测：${p.mbti_guess || '?'}`];
+    $('personaOut').textContent = plines.join('\n');
+
+    $('adviceOut').textContent = data.advice;
+  } catch (e) {
+    $('signalsOut').textContent = '出错：' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '开始分析';
+  }
+};
+</script>
+</body>
+</html>
