@@ -10,8 +10,8 @@ PROMPT = """你是关系信号分析器。分析以下聊天记录中【目标�
 输出严格 JSON：
 {
   "intimacy": {"score": 0-100, "evidence": ["目标原话1", "目标原话2"]},
-  "passion": {"score": 0-100, "evidence": [...]},
-  "commitment": {"score": 0-100, "evidence": [...]},
+  "passion": {"score": 0-100, "evidence": ["目标原话1"]},
+  "commitment": {"score": 0-100, "evidence": ["目标原话1"]},
   "risk_flags": ["你以为在升温但可能是礼貌回避的信号，用目标原话引用"],
   "summary": "一段话，一针见血，引用证据"
 }
@@ -24,7 +24,8 @@ def analyze_signals(chat, CFG):
     chat_text = "\n".join(f"[{m.speaker}] {m.text}" for m in chat)
     resp = _llm(CFG).chat.completions.create(
         model=CFG["llm"]["model"],
-        messages=[{"role": "user", "content": PROMPT.format(chat=chat_text)}],
+        # 【修复】把 format 换成 replace
+        messages=[{"role": "user", "content": PROMPT.replace("{chat}", chat_text)}],
         temperature=0.3,
     )
     raw = resp.choices[0].message.content

@@ -21,7 +21,8 @@ def build_persona(chat, CFG):
     chat_text = "\n".join(f"[{m.speaker}] {m.text}" for m in chat)
     resp = OpenAI(base_url=CFG["llm"]["base_url"], api_key=CFG["llm"]["api_key"]).chat.completions.create(
         model=CFG["llm"]["model"],
-        messages=[{"role": "user", "content": PROMPT.format(chat=chat_text)}],
+        # 【修复】把 format 换成 replace
+        messages=[{"role": "user", "content": PROMPT.replace("{chat}", chat_text)}],
         temperature=0.3,
     )
     raw = resp.choices[0].message.content

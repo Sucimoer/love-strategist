@@ -17,7 +17,6 @@ app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 
 def get_local_cfg(data):
-    """从请求中提取用户的 api_key，如果没有则使用默认配置"""
     user_key = data.get("api_key", "").strip()
     local_cfg = CFG.copy()
     if user_key:
@@ -30,7 +29,8 @@ def index():
     scenes = [{"key": k, "desc": v} for k, v in TURNING_POINTS.items()]
     return render_template("index.html", scenes=scenes)
 
-# ===== 知识库接口 =====
+# ... 前面的知识库接口保持不变 ...
+
 @app.route("/api/knowledge/list", methods=["GET"])
 def api_kb_list():
     books = load_books()
@@ -109,6 +109,8 @@ def api_simulate():
     data = request.get_json(force=True)
     raw = data.get("chat", "").strip()
     scene_key = data.get("scene", "exclusivity_talk")
+    opening_line = data.get("opening_line", "").strip() # 【新增】获取自定义开场白
+    
     if not raw: return jsonify({"error": "聊天内容为空"}), 400
 
     local_cfg = get_local_cfg(data)
@@ -118,7 +120,8 @@ def api_simulate():
     try:
         chat = parse_chat(raw)
         persona = build_persona(chat, local_cfg)
-        sim = simulate_turning_point(scene_key, chat, persona, local_cfg)
+        # 【新增】把 opening_line 传进去
+        sim = simulate_turning_point(scene_key, chat, persona, local_cfg, opening_line=opening_line)
         return jsonify({"distribution": sim["distribution"]})
     except Exception as e:
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500

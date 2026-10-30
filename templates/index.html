@@ -129,7 +129,11 @@
 <!-- 模拟 -->
 <div class="card">
   <div class="section-title">转折点模拟</div>
-  <p class="hint">不预测“结局”，只模拟关键节点的方向分布。每个场景约 30–60 秒。</p>
+  <p class="hint">把军师推荐的话术填进去，或者写下你自己想发的，跑一下推演。</p>
+  
+  <!-- 【新增】自定义开场白输入框 -->
+  <textarea id="simOpeningLine" placeholder="（可选）输入你打算发的话术，留空则默认用聊天记录里你的最后一句。" style="min-height: 80px;"></textarea>
+  
   <div class="row">
     <select id="sceneSelect">
       {% for s in scenes %}
@@ -399,6 +403,8 @@ $('simulateBtn').onclick = async () => {
   if (!cfg.api_key) return alert('请先填入 API Key');
   const chatContent = $('chatInput').value.trim();
   if (!chatContent) return alert('请先粘贴聊天记录');
+  
+  const openingLine = $('simOpeningLine').value.trim(); // 【新增】获取用户输入的开场白
 
   const btn = $('simulateBtn'); btn.disabled = true; btn.textContent = '模拟中…';
   $('simOut').textContent = '正在跑多轮模拟（约 30–60 秒）…'; $('simOut').classList.remove('error');
@@ -406,7 +412,12 @@ $('simulateBtn').onclick = async () => {
   try {
     const res = await fetch('/api/simulate', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ chat: chatContent, scene: $('sceneSelect').value, api_key: cfg.api_key })
+      body: JSON.stringify({ 
+        chat: chatContent, 
+        scene: $('sceneSelect').value, 
+        api_key: cfg.api_key,
+        opening_line: openingLine // 【新增】传给后端
+      })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
