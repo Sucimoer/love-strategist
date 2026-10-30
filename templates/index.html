@@ -148,6 +148,7 @@
   
   <pre id="simOut" style="margin-top:10px;"></pre>
 </div>
+
 <!-- 知识库模态框 -->
 <div class="modal-backdrop hidden" id="knowledgeModal">
   <div class="modal">
@@ -204,6 +205,25 @@
 const $ = id => document.getElementById(id);
 let cachedFeedback = []; // 本地暂存历史
 
+// ======== 核心修复：封装安全的 Fetch，防止 HTML 被当成 JSON 解析 ========
+async function safeFetchJSON(url, options) {
+  const res = await fetch(url, options);
+  
+  // 如果网关超时，会返回 HTML 页面，直接拦截
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    if (text.trim().startsWith('<')) {
+      throw new Error('服务器响应超时或崩溃。如果使用的是免费模型，请换用更快的模型或稍后重试。');
+    }
+    throw new Error('服务器返回了非 JSON 格式：' + text.slice(0, 50));
+  }
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `请求失败 (${res.status})`);
+  return data;
+}
+
 // ======== 配置管理 ========
 function getCfg() {
   return {
@@ -233,16 +253,19 @@ async function openKB() {
   await loadKBList();
 }
 async function loadKBList() {
-  const res = await fetch('/api/knowledge/list');
-  const books = await res.json();
-  const box = $('kbList');
-  if (!books.length) { box.innerHTML = '<div style="font-size:13px;color:#999;">暂无资料</div>'; return; }
-  box.innerHTML = books.map(b => `
-    <div class="k-item">
-      <div><b>${b.title}</b> <span style="color:#999;">(${b.length} 字)</span></div>
-      <button class="danger" style="padding:4px 10px;font-size:12px;margin:0;" onclick="deleteKB('${b.id}')">删除</button>
-    </div>
-  `).join('');
+  try {
+    const books = await safeFetchJSON('/api/knowledge/list');
+    const box = $('kbList');
+    if (!books.length) { box.innerHTML = '<div style="font-size:13px;color:#999;">暂无资料</div>'; return; }
+    box.innerHTML = books.map(b => `
+      <div class="k-item">
+        <div><b>${b.title}</b> <span style="color:#999;">(${b.length} 字)</span></div>
+        <button class="danger" style="padding:4px 10px;font-size:12px;margin:0;" onclick="deleteKB('${b.id}')">删除</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    alert('获取知识库失败：' + e.message);
+  }
 }
 async function addKB() {
   const title = $('kbTitle').value;
@@ -268,19 +291,14 @@ async function searchBook() {
   if (!title) return;
   $('kbSearchResult').textContent = '正在搜索...';
   try {
-    const res = await fetch('/api/knowledge/search_book', {
+    const data = await safeFetchJSON('/api/knowledge/search_book', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ title })
     });
-    const data = await res.json();
-    if (data.ok) {
-      $('kbTitle').value = data.title;
-      $('kbContent').value = data.description;
-      $('kbSearchResult').textContent = '成功获取简介！如果你有该书的全本，请在下方追加粘贴正文。';
-    } else {
-      $('kbSearchResult').textContent = '失败：' + data.error;
-    }
-  } catch(e) { $('kbSearchResult').textContent = '请求出错'; }
+    $('kbTitle').value = data.title;
+    $('kbContent').value = data.description;
+    $('kbSearchResult').textContent = '成功获取简介！如果你有该书的全本，请在下方追加粘贴正文。';
+  } catch(e) { $('kbSearchResult').textContent = '失败：' + e.message; }
 }
 $('kbFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
@@ -357,20 +375,19 @@ $('analyzeBtn').onclick = async () => {
 
   const btn = $('analyzeBtn'); btn.disabled = true; btn.textContent = '分析中…';
   $('resultSection').classList.remove('hidden');
+  $('signalsOut').classList.remove('error');
   $('signalsOut').textContent = '正在抽取信号…'; $('personaOut').textContent = '正在分析人格…'; $('adviceOut').textContent = '生成建议中…';
 
   try {
-    const res = await fetch('/api/analyze', {
+    const data = await safeFetchJSON('/api/analyze', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ 
         chat: chatContent, 
         api_key: cfg.api_key,
-        base_url: cfg.base_url, // 新增
-        model: cfg.model        // 新增
+        base_url: cfg.base_url,
+        model: cfg.model
       })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
 
     renderAffection(data.signals);
     
@@ -406,7 +423,6 @@ $('viewFeedbackBtn').onclick = () => {
 };
 
 // ======== 模拟 ========
-// 监听下拉框变化，控制自定义输入框的显示
 $('sceneSelect').onchange = (e) => {
   if (e.target.value === 'custom') {
     $('customSceneInput').classList.remove('hidden');
@@ -424,7 +440,6 @@ $('simulateBtn').onclick = async () => {
   const openingLine = $('simOpeningLine').value.trim();
   let scene = $('sceneSelect').value;
   
-  // 如果选了自定义场景，读取输入框内容
   if (scene === 'custom') {
     scene = $('customSceneInput').value.trim();
     if (!scene) return alert('你选择了自定义场景，请填写具体情境');
@@ -434,25 +449,17 @@ $('simulateBtn').onclick = async () => {
   $('simOut').textContent = '正在跑多轮模拟（约 10–20 秒）…'; $('simOut').classList.remove('error');
 
   try {
-        const res = await fetch('/api/simulate', {
+    const data = await safeFetchJSON('/api/simulate', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ 
         chat: chatContent, 
         scene: scene, 
         api_key: cfg.api_key,
-        base_url: cfg.base_url, // 新增
-        model: cfg.model,       // 新增
+        base_url: cfg.base_url,
+        model: cfg.model,
         opening_line: openingLine 
       })
     });
-    
-    // 【修复】先判断 HTTP 状态，防止拿到 HTML 页面去解析 JSON
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`服务器响应错误 (${res.status})，可能是超时，请重试`);
-    }
-    
-    const data = await res.json();
     $('simOut').textContent = data.distribution;
   } catch (e) {
     $('simOut').textContent = '模拟失败：' + e.message; 
@@ -461,6 +468,7 @@ $('simulateBtn').onclick = async () => {
     btn.disabled = false; btn.textContent = '模拟该场景'; 
   }
 };
+
 // 关闭模态框
 document.querySelectorAll('[data-close]').forEach(el => el.onclick = () => $(el.dataset.close).classList.add('hidden'));
 document.querySelectorAll('.modal-backdrop').forEach(bd => bd.onclick = e => { if (e.target === bd) bd.classList.add('hidden'); });
